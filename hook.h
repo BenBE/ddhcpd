@@ -6,7 +6,7 @@
 #define HOOK_LEASE 1
 #define HOOK_RELEASE 2
 
-void hook(uint8_t type, struct in_addr* address, uint8_t* chaddr, ddhcp_config* config);
+void hook(uint8_t type, struct in_addr* address, uint8_t* chaddr, ddhcp_config* config, void* args);
 void hook_init();
 
 #endif
