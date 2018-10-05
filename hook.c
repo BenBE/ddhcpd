@@ -30,6 +30,221 @@ static void hook_put_env(char* data_start, char ** data_next, char** ptr_start, 
     *data_next += env_size + 1;
 }
 
+typedef void (* hook_decode_option_proc)(uint8_t* option, uint8_t optionlen, char* dest);
+
+struct hook_decode_option_handler_info {
+    hook_decode_option_proc handler;
+    uint8_t* option_list;
+};
+
+typedef struct hook_decode_option_handler_info hook_decode_option_handler_info;
+
+uint8_t hook_decode_optionlist_ipv4[] = {
+  1,	// Subnet Mask
+  3,	// Routers
+  4,	// Time Servers
+  5,	// IEN 116 Name Servers
+  6,	// Domain Name System Servers
+  7,	// MIT-LCS UDP Log Servers
+  8,	// Fortune Cookie Servers
+  9,	// LPR Servers
+  10,	// Impress Servers
+  11,	// Resource Location Servers
+  16,	// Swap Server
+  21,	// Policy Filter Option
+  28,	// Broadcast Address
+  32,	// Router Solicitation Address
+  33,	// Static Routes
+  41,	// Network Information Servers
+  42,	// NTP Servers
+  44,	// NetBIOS Name Servers
+  45,	// NetBIOS Datagram Distribution Servers
+  48,	// X11 Font Servers
+  49,	// X11 Display Manager Servers
+  50,	// Client Req IP Address
+  54,	// DHCP Server ID/Address
+  65,	// NIS+ Servers
+  68,	// Mobile IP Home Agent Servers
+  69,	// SMTP Servers
+  70,	// POP3 Servers
+  71,	// NNTP Servers
+  72,	// WWW Servers
+  73,	// Finger Servers
+  74,	// IRC Servers
+  75,	// StreetTalk Servers
+  76,	// StreetTalk Directory Assistence Servers
+  0	// END OF LIST
+};
+static void hook_decode_option_ipv4(uint8_t* option, uint8_t option_len, char* dest) {
+    if(!dest) {
+        return;
+    }
+
+    char tmp[INET_ADDRSTRLEN] = { 0 };
+
+    while(option_len >= 4) {
+        if(!inet_ntop(AF_INET, option, &tmp[0], INET_ADDRSTRLEN)) {
+            *dest = 0;
+            return;
+        }
+
+        strncat(dest, tmp, ENV_LEN_VALUE_MAX - strlen(dest) - 1);
+
+        option += 4;
+        option_len -= 4;
+
+        if(option_len >= 4) {
+            strncat(dest, ",", ENV_LEN_VALUE_MAX - strlen(dest) - 1);
+        }
+    }
+}
+
+uint8_t hook_decode_optionlist_string[] = {
+  12,	// Host Name
+  14,	// Crash Dump File
+  15,	// Domain Name
+  17,	// Root Path
+  18,	// Extensions Path
+  40,	// Network Information Service Domain
+  56,	// Server Error Message
+  64,	// NIS+ domain
+  66,	// TFTP Server Name
+  67,	// TFTP Boot File Name
+  81,	// Client FQDN
+  0	// END OF LIST
+};
+static void hook_decode_option_string(uint8_t* option, uint8_t option_len, char* dest) {
+    for( ; option_len--; option++, dest++) {
+        if(
+            (*option >= 'A' && *option <= 'Z') ||
+            (*option >= 'a' && *option <= 'z') ||
+            (*option >= '0' && *option <= '9') ||
+            (*option == '.') ||
+            (*option == ':') ||
+            (*option == '-') ||
+            (*option == '/') ||
+            (*option == '_')
+        ) {
+            *dest = *option;
+        } else {
+            *dest = '_';
+        }
+    }
+
+    *dest = 0;
+}
+
+uint8_t hook_decode_optionlist_int8[] = {
+  19,	// IP Forwarding
+  20,	// Non-local Source Routing
+  23,	// IP Default TTL
+  27,	// All Subnets are Local
+  29,	// Perform Mask Discovery
+  30,	// Mask Supplier Option
+  31,	// Perform Router Discovery
+  34,	// Trailer Encapsulation
+  36,	// Ethernet Encapsulation
+  37,	// TCP Default TTL
+  39,	// TCP Keepalive Garbage
+  46,	// NetBIOS Node Type
+  52,	// DHCP Option Overload
+  53,	// DHCP Message Type
+  55,	// DHCP Option Request List
+  0	// END OF LIST
+};
+static void hook_decode_option_int8(uint8_t* option, uint8_t option_len, char* dest) {
+  *dest = 0;
+
+  if(!option || !option_len) {
+    return;
+  }
+
+  if(option_len > ENV_LEN_VALUE_MAX / 4ull) {
+    option_len = ENV_LEN_VALUE_MAX / 4ull;
+  }
+
+  while(option_len) {
+    snprintf(dest + strlen(dest), ENV_LEN_VALUE_MAX - strlen(dest), "%u", (uint32_t)*option);
+
+    option_len--;
+
+    if(option_len) {
+      strcat(dest, ",");
+    }
+  }
+}
+
+uint8_t hook_decode_optionlist_int16[] = {
+  13,	// Boot Image Size (512 Byte Sectors)
+  22,	// Maximum Datagram Reassembly Size
+  25,	// Path MTU Plateau Table Size
+  26,	// Interface MTU Size
+  57,	// DHCP Maximum Message Size
+  0	// END OF LIST
+};
+static void hook_decode_option_int16(uint8_t* option, uint8_t option_len, char* dest) {
+  *dest = 0;
+
+  if(!option || option_len < 2) {
+    return;
+  }
+
+  if(option_len > ENV_LEN_VALUE_MAX / 8ull) {
+    option_len = ENV_LEN_VALUE_MAX / 8ull;
+  }
+
+  while(option_len >= 2) {
+    snprintf(dest + strlen(dest), ENV_LEN_VALUE_MAX - strlen(dest), "%u", option[0] * 256u + option[1]);
+
+    option_len -= 2;
+
+    if(option_len >= 2) {
+      strcat(dest, ",");
+    }
+  }
+}
+
+uint8_t hook_decode_optionlist_int32[] = {
+  2,	// UTC offset (seconds)
+  24,	// Path MTU Aging Timeout
+  35,	// ARP Cache Timeout
+  38,	// TCP Keepalive Timeout
+  51,	// DHCP Lease Timeout
+  58,	// DHCP Renewal (T1) Timeout
+  59,	// DHCP Rebind (T2) Timeout
+  0	// END OF LIST
+};
+static void hook_decode_option_int32(uint8_t* option, uint8_t option_len, char* dest) {
+  *dest = 0;
+
+  if(!option || option_len < 4) {
+    return;
+  }
+
+  if(option_len > ENV_LEN_VALUE_MAX / 12ull) {
+    option_len = ENV_LEN_VALUE_MAX / 12ull;
+  }
+
+  while(option_len >= 4) {
+    snprintf(dest + strlen(dest), ENV_LEN_VALUE_MAX - strlen(dest), "%u", ntohl(*(int32_t *)option));
+
+    option_len -= 4;
+
+    if(option_len >= 4) {
+      strcat(dest, ",");
+    }
+  }
+}
+
+static hook_decode_option_handler_info const hook_option_decoders[] = {
+    { .handler = hook_decode_option_ipv4, .option_list = hook_decode_optionlist_ipv4 },
+    { .handler = hook_decode_option_string, .option_list = hook_decode_optionlist_string },
+    { .handler = hook_decode_option_int8, .option_list = hook_decode_optionlist_int8 },
+    { .handler = hook_decode_option_int16, .option_list = hook_decode_optionlist_int16 },
+    { .handler = hook_decode_option_int32, .option_list = hook_decode_optionlist_int32 },
+    { .handler = NULL, .option_list = NULL }
+};
+
 void hook(uint8_t type, struct in_addr* address, uint8_t* chaddr, ddhcp_config* config, void* args) {
 #if LOG_LEVEL_LIMIT >= LOG_DEBUG
   char* hwaddr = hwaddr2c(chaddr);
@@ -130,6 +345,33 @@ void hook(uint8_t type, struct in_addr* address, uint8_t* chaddr, ddhcp_config* 
         }
 
         hook_put_env(env_data, &env_data_next, env_ptr, &env_ptr_next, name, value);
+
+        for(
+          hook_decode_option_handler_info const * decoder_info = &hook_option_decoders[0];
+          decoder_info->handler && decoder_info->option_list;
+          decoder_info++) {
+
+          uint8_t* decoder_code = decoder_info->option_list;
+          while(decoder_code && *decoder_code) {
+            if(*decoder_code != option->code) {
+              decoder_code++;
+              continue;
+            }
+
+            decoder_code = NULL;
+
+            value[0] = 0;
+
+            decoder_info->handler(option->payload, option->len, &value[0]);
+
+            snprintf(name, sizeof(name), "DHCP_VALUE_%02X", option->code);
+            hook_put_env(env_data, &env_data_next, env_ptr, &env_ptr_next, name, value);
+          }
+
+          if(!decoder_code) {
+            break;
+          }
+        }
       }
     }
 
